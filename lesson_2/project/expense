@@ -1,0 +1,139 @@
+#!/usr/bin/env node
+
+const { Client } = require("pg");
+const { argv } = require('node:process');
+class CLI {
+  constructor(args) {
+    this.command = args[2];
+    this.args = args.slice(3);
+    this.processArguments();
+  }
+
+  processArguments() {
+    let expenseData = new ExpenseData(this.command, this.args)
+
+    switch (this.command) {
+      case 'add':
+        expenseData.insert(this.args);
+        break;
+      case 'list':
+        expenseData.listExpenses();
+        break;
+      case 'search':
+        expenseData.searchExpenses(this.args);
+        break;
+      case 'delete':
+        expenseData.deleteExpense(this.args[0]);
+        break;
+      default:
+        expenseData.showHelp();
+    }
+  }
+}
+
+class ExpenseData {
+  constructor(command, args) {
+    this.database = new Client({
+      user: 'steve',
+      password: 'Atlant1c',
+      database: 'js185lesson2project'
+    })
+  }
+
+  async insert(values) {
+    if (values.length === 2) {
+      let queryText = 'INSERT INTO expenses (amount, memo) VALUES ($1, $2)'
+      try {
+        await this.database.connect();
+        await this.database.query(queryText, values);
+        console.log('Insert successful');
+        await this.database.end();
+      } catch (error) {
+        this.constructor.logErrorAndExit(error);
+      }
+    } else {
+      this.constructor.logErrorAndExit(new Error('Must provide both amount and memo'));
+    }
+  }
+
+  async listExpenses() {
+    try {
+      let queryString = "SELECT * FROM expenses ORDER BY created_on ASC"
+      await this.database.connect();
+      let result = await this.database.query(queryString);
+      this.constructor.displayExpenses(result.rows);
+      await this.database.end();
+    } catch (error) {
+      this.constructor.logErrorAndExit(error);
+    }
+  }
+
+  async searchExpenses(args) {
+    let search = [args.join(' ')];
+    let queryString = "SELECT * FROM expenses WHERE memo ILIKE '%' || $1 || '%' ORDER BY created_on ASC"
+    try {
+      await this.database.connect();
+      let result = await this.database.query(queryString, search);
+      this.constructor.displayExpenses(result.rows);
+      await this.database.end();
+    } catch (error) {
+      this.constructor.logErrorAndExit(error);
+    }
+  }
+
+  async deleteExpense(id) {
+    if (id === undefined) {
+      this.constructor.logErrorAndExit('No search term provided');
+    } else {
+      let search = [id];
+      let searchString = "SELECT * FROM expenses WHERE id = $1"
+      let deleteString = "DELETE FROM expenses WHERE id = $1"
+      try {
+        await this.database.connect();
+        let searchResult = await this.database.query(searchString, search);
+        if (searchResult.rows.length > 0) {
+          await this.database.query(deleteString, search);
+          console.log('The following expense was deleted');
+          this.constructor.displayExpenses(searchResult.rows);
+        } else {
+          console.log(`There is no expense with the id ${id}`);
+        }
+        await this.database.end();
+      } catch (error) {
+        this.constructor.logErrorAndExit(error);
+      }
+    }
+  }
+
+  showHelp() {
+    console.log(this.constructor.initialText);
+  }
+
+
+  static initialText = `An expense recording system\n\nCommands:\n
+  add AMOUNT MEMO [DATE] - record a new expense
+  clear - delete all expenses
+  list - list all expenses
+  delete NUMBER - remove expense with id NUMBER
+  search QUERY - list expenses with a matching memo field`
+
+  static logErrorAndExit(error) {
+    console.log(error);
+    process.exit();
+  }
+
+  static displayExpenses(expenses) {
+    expenses.forEach(row => {
+      let columns = [
+        `${row.id}`.padStart(3),
+        row.created_on.toDateString().padStart(10),
+        `${row.amount}`.padStart(12),
+        row.memo
+      ]
+
+      console.log(columns.join(' | '))
+    })
+  }
+}
+
+let app = new CLI(argv);
