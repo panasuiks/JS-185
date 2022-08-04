@@ -2,6 +2,8 @@
 
 const { Client } = require("pg");
 const { argv } = require('node:process');
+const rlsync = require('readline-sync');
+const fs = require('fs');
 class CLI {
   constructor(args) {
     this.command = args[2];
@@ -25,6 +27,9 @@ class CLI {
       case 'delete':
         expenseData.deleteExpense(this.args[0]);
         break;
+      case 'clear':
+        expenseData.deleteAllExpenses();
+        break;
       default:
         expenseData.showHelp();
     }
@@ -45,6 +50,7 @@ class ExpenseData {
       let queryText = 'INSERT INTO expenses (amount, memo) VALUES ($1, $2)'
       try {
         await this.database.connect();
+        await this.setupSchema();
         await this.database.query(queryText, values);
         console.log('Insert successful');
         await this.database.end();
@@ -60,6 +66,7 @@ class ExpenseData {
     try {
       let queryString = "SELECT * FROM expenses ORDER BY created_on ASC"
       await this.database.connect();
+      await this.setupSchema();
       let result = await this.database.query(queryString);
       this.constructor.displayExpenses(result.rows);
       await this.database.end();
@@ -73,6 +80,7 @@ class ExpenseData {
     let queryString = "SELECT * FROM expenses WHERE memo ILIKE '%' || $1 || '%' ORDER BY created_on ASC"
     try {
       await this.database.connect();
+      await this.setupSchema();
       let result = await this.database.query(queryString, search);
       this.constructor.displayExpenses(result.rows);
       await this.database.end();
@@ -90,6 +98,7 @@ class ExpenseData {
       let deleteString = "DELETE FROM expenses WHERE id = $1"
       try {
         await this.database.connect();
+        await this.setupSchema();
         let searchResult = await this.database.query(searchString, search);
         if (searchResult.rows.length > 0) {
           await this.database.query(deleteString, search);
@@ -105,8 +114,39 @@ class ExpenseData {
     }
   }
 
+  async deleteAllExpenses() {
+    let input = rlsync.question('This will remove all expenses. Are you sure? (enter y to confirm)')
+    if (input.toLowerCase() === 'y') {
+      try {
+        await this.database.connect();
+        await this.setupSchema();
+        let queryString = 'DELETE FROM expenses';
+        await this.database.query(queryString)
+        await this.database.end();
+        console.log('All expenses have been deleted');
+      } catch (error) {
+        logErrorAndExit(error);
+      }
+    } else {
+      console.log('Will not clear entries');
+    }
+  }
+
   showHelp() {
     console.log(this.constructor.initialText);
+  }
+
+  async setupSchema() {
+    try {
+      let existsResults = await this.database.query("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'expenses'")
+      let tableExists = existsResults.rows[0].count > 0;
+      if (!tableExists) {
+        let sqlSchema = await fs.promises.readFile('schema.sql', "utf8");
+        await this.database.query(sqlSchema);
+      }
+    } catch (error) {
+      this.constructor.logErrorAndExit(error)
+    }
   }
 
 
@@ -123,17 +163,49 @@ class ExpenseData {
   }
 
   static displayExpenses(expenses) {
-    expenses.forEach(row => {
-      let columns = [
-        `${row.id}`.padStart(3),
-        row.created_on.toDateString().padStart(10),
-        `${row.amount}`.padStart(12),
-        row.memo
-      ]
-
-      console.log(columns.join(' | '))
-    })
+    let numOfExpenses = expenses.length;
+    this.displayCount(numOfExpenses);
+    if (numOfExpenses > 0) {
+      let total = 0;
+      let memoMaxLength = 0
+      const AMOUNTPAD = 36;
+      const AMOUNTJOINS = 3;
+      expenses.forEach(row => {
+        let columns = [
+          `${row.id}`.padStart(3),
+          row.created_on.toDateString().padStart(15),
+          `$${row.amount}`.padStart(12),
+          row.memo
+        ]
+        console.log(columns.join(' | '))
+        if (row.memo.length > memoMaxLength) memoMaxLength = row.memo.length;
+        total += Number(row.amount);
+      })
+      let totalLength = AMOUNTPAD + AMOUNTJOINS + memoMaxLength;
+      total = (Math.round(total * 100) / 100).toFixed(2);
+      this.displayTotal(total, AMOUNTPAD, totalLength);
+      // console.log('-'.repeat(AMOUNTPAD + memoMaxLength + 8))
+      // console.log(`Total` + `$${total}`.padStart(AMOUNTPAD));
+    }
   }
+
+  static displayCount(numOfExpenses) {
+    if (numOfExpenses > 1) {
+      console.log(`There are ${numOfExpenses} expenses:`);
+    } else if (numOfExpenses === 1) {
+      console.log(`There is ${numOfExpenses} expense:`);
+    } else {
+      console.log('There are no expenses.')
+    }
+  }
+
+  static displayTotal(total, amountLength, fullLength) {
+    let startText = 'Total';
+    console.log('-'.repeat(fullLength));
+    console.log(startText + `$${total}`.padStart(amountLength - startText.length));
+  }
+
+
 }
 
 let app = new CLI(argv);

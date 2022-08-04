@@ -9,6 +9,10 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "pg": "8.7"
+    "fs": "^0.0.1-security",
+    "install": "^0.13.0",
+    "npm": "^8.14.0",
+    "pg": "8.7",
+    "readline-sync": "^1.4.10"
   }
 }
