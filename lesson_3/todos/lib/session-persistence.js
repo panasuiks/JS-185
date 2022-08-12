@@ -115,7 +115,7 @@ module.exports = class SessionPersistence {
       return false;
     }
   }
-  
+
   existsTodoListTitle(title) {
     return this._todoLists.some(todoList => todoList.title === title)
   }
@@ -123,5 +123,9 @@ module.exports = class SessionPersistence {
   createNewTodoList(title) {
     let newTodoList = new TodoList(title)
     this._todoLists.push(newTodoList);
+  }
+
+  isUniqueConstraintViolation(error) {
+    return false;
   }
 }

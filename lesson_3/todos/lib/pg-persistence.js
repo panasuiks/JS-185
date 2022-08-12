@@ -5,132 +5,119 @@ const { dbQuery } = require("./db-query")
 const { sortTodoLists } = require("./sort");
 
 module.exports = class PgPersistence {
-  constructor(session) {
-    // this._todoLists = session.todoLists || deepCopy(SeedData);
-    // session.todoLists = this._todoLists;
+  async _partitionTodoLists(todoLists) {
+    let undone = [];
+    let done = [];
+    for (let todoList of todoLists) {
+      if (await this.isDoneTodoList(todoList)) {
+        done.push(todoList);
+      } else {
+        undone.push(todoList);
+      }
+    }
+    return [...undone, ...done];
   }
 
-  _findTodo(todoListId, todoId) {
-    // let todoList = this._todoLists.find(todoList => todoList.id === todoListId);
-    // return todoList.todos.find(todo => todo.id === todoId);
-  }
-
-  _findTodoList(todoListId) {
-    // return this._todoLists.find(todoList => todoList.id === todoListId);
+  async isValidUser(username, password) {
+    let sql = "SELECT * FROM users WHERE username=$1 AND password =$2"
+    let result = await dbQuery(sql, username, password);
+    console.log(result)
+    return result.rowCount === 1
   }
 
   async sortedTodoLists() {
-    let todoLists = (await dbQuery("SELECT * FROM todolists")).rows;
-    let undone = todoLists.filter(todoList => !(this.isDoneTodoList(todoList)));
-    let done = todoLists.filter(todoList => this.isDoneTodoList(todoList));
-    return sortTodoLists(undone, done);
+    let todoLists = (await dbQuery("SELECT * FROM todolists ORDER BY title ASC")).rows;
+    for (let todoListIndex in todoLists) {
+      let todoList = todoLists[todoListIndex]
+      todoList.todos = await this.sortedTodos(todoList);
+      console.log('tets');
+    }
+    return await this._partitionTodoLists(todoLists);
   }
 
   async isDoneTodoList(todoList) {
-    let todoListId = todoList.id;
-    let todos = await this.loadTodos(todoListId);
-    return todos.length > 0 && todos.every(todo => todo.done);
-  }
-
-  async countAllTodos(todoList) {
-    let todoListId = todoList.id;
-    let todos = await this.loadTodos(todoListId);
-    return todos.length;
-  }
-
-  async countDoneTodos(todoList) {
-    let todoListId = todoList.id;
-    let todos = await this.loadTodos(todoListId);
-    let doneTodos = todos.filter(todo => todo.done);
-    return doneTodos.length;
+    let sql_undone = "SELECT * FROM todos WHERE todolist_id = $1 AND done = false";
+    let sql_done = "SELECT * FROM todos WHERE todolist_id = $1 AND done = true";
+    let undone = (await dbQuery(sql_undone, todoList.id)).rows;
+    let done = (await dbQuery(sql_done, todoList.id)).rows;
+    return undone.length === 0 && done.length != 0;
   }
 
   // Find a todo list with the indicated ID. Returns `undefined` if not found.
   // Note that `todoListId` must be numeric.
-  loadTodoList(todoListId) {
-    // let todoList = this._todoLists.find(todoList => todoList.id === todoListId);
-    // return deepCopy(todoList);
+  async loadTodoList(todoListId) {
+    let sql = "SELECT * FROM todolists WHERE id = $1";
+    let todoList = (await dbQuery(sql, todoListId)).rows[0];
+    todoList.todos = await this.sortedTodos(todoList);
+    return todoList;
   };
 
-  async loadTodos(todoListId) {
-    return  (await dbQuery("SELECT * FROM todos WHERE todolist_id = $1", todoListId)).rows;
-  }
-
   hasUndoneTodos(todoList) {
-    // return todoList.todos.some(todo => !todo.done)
+    return todoList.todos.some(todo => !todo.done)
   }
 
-  sortedTodos(todoList) {
-    // let todos = todoList.todos;
-    // let undone = todos.filter(todo => !todo.done);
-    // let done = todos.filter(todo => todo.done);
-    // return deepCopy(sortTodos(undone, done));
+  async sortedTodos(todoList) {
+    let sql = "SELECT * FROM todos WHERE todolist_id = $1 ORDER BY done ASC, title ASC";
+    return (await dbQuery(sql, todoList.id)).rows;
   }
 
-  loadTodo(todoListId, todoId) {
-    // let todoList = this.loadTodoList(todoListId);
-    // if (todoList) {
-    //   let todo = todoList.todos.find(todo => todo.id === todoId)
-    //   return deepCopy(todo);
-    // } else {
-    //   return undefined;
-    // }
-  }
-
-  isDoneTodo(todoListId, todoId) {
-    // let todoList = this._todoLists.find(todoList => todoList.id === todoListId);
-    // let todo = todoList.todos.find(todo => todo.id === todoId);
-    // return todo.done;
+  async loadTodo(todoListId, todoId) {
+    let todoList = this.loadTodoList(todoListId);
+    if (todoList) {
+      let sql = "SELECT * FROM todos WHERE id = $1 AND todolist_id = $2";
+      let todo = (await dbQuery(sql, todoId, todoListId)).rows[0];
+      return todo;
+    } else {
+      return undefined;
+    }
   }
 
   markTodoDone(todoListId, todoId) {
-    // let todo = this._findTodo(todoListId, todoId);
-    // todo.done = true;
+    let sql = "UPDATE todos SET done = true WHERE id = $1 AND todolist_id = $2"
+    dbQuery(sql, todoId, todoListId);
   }
 
   markTodoUndone(todoListId, todoId) {
-    // let todo = this._findTodo(todoListId, todoId);
-    // todo.done = false;
+    let sql = "UPDATE todos SET done = false WHERE id = $1 AND todolist_id = $2"
+    dbQuery(sql, todoId, todoListId);
   }
 
   deleteTodoList(todoListId) {
-    // let todoListIndex = this._todoLists.findIndex(todoList => todoList.id === todoListId);
-    // this._todoLists.splice(todoListIndex, 1);
+    let sql = "DELETE FROM todolists WHERE id = $1"
+    dbQuery(sql, todoListId);
   }
 
-  deleteTodo(todoListId, todoId) {
-    // let todoList = this._findTodoList(todoListId);
-    // let todoIndex = todoList.todos.findIndex(todo => todo.id = todoId);
-    // todoList.todos.splice(todoIndex, 1);
+  async deleteTodo(todoListId, todoId) {
+    let sql = "DELETE FROM todos WHERE id = $1 AND todolist_id = $2"
+    dbQuery(sql, todoId, todoListId);
   }
 
   markAllTodosDone(todoListId) {
-    // let todoList = this._findTodoList(todoListId);
-    // todoList.todos.forEach(todo => {
-    //   todo.done = true;
-    // })
+    let sql = "UPDATE todos SET done = true WHERE todolist_id = $1"
+    dbQuery(sql, todoListId);
   }
 
   createNewTodo(todoListId, title) {
-    // let todoList = this._findTodoList(todoListId);
-    // todoList.todos.push(new Todo(title));
+    let sql = "INSERT INTO todos (title, todolist_id) VALUES ($1, $2)"
+    dbQuery(sql, title, todoListId)
   }
 
-  changeTodoListTitle(todoListId, title) {
-    // let todoList = this._findTodoList(todoListId);
-    // if (todoList) {
-    //   todoList.title = title;
-    //   return true;
-    // } else {
-    //   return false;
-    // }
+  async changeTodoListTitle(todoListId, title) {
+    let sql = "UPDATE todolists SET title = $1 WHERE id = $2"
+    let result = await dbQuery(sql, title, todoListId);
+    return result.rowCount === 1;
+  }
+
+  isUniqueConstraintViolation(error) {
+    return /duplicate key value violates unique constraint/.test(String(error));
   }
 
   existsTodoListTitle(title) {
     // return this._todoLists.some(todoList => todoList.title === title)
   }
 
-  createNewTodoList(title) {
-    // let newTodoList = new TodoList(title)
-    // this._todoLists.push(newTodoList);
-  }}
+  async createNewTodoList(title) {
+    let sql = "INSERT INTO todolists (title) VALUES ($1)";
+    await dbQuery(sql, title);
+  }
+}
