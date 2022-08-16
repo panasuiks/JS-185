@@ -192,7 +192,7 @@ app.post("/users/signin", catchError(async (req, res, next) => {
   let store = res.locals.store;
   let username = req.body.username.trim();
   let password = req.body.password;
-  let authenticated = store.isValidUser(username, password);
+  let authenticated = await store.authenticate(username, password);
   if (!authenticated) {
     req.flash("error", "Invalid credentials.");
     res.render("signin", {
@@ -200,8 +200,9 @@ app.post("/users/signin", catchError(async (req, res, next) => {
       username
     });
   } else {
-    req.session.username = username;
-    req.session.signedIn = true;
+    let session = req.session;
+    session.username = username;
+    session.signedIn = true;
     req.flash("success", "Welcome!");
     res.redirect('/lists');
   };

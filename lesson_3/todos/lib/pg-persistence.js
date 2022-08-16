@@ -3,8 +3,11 @@ const TodoList = require("./todolist");
 const session = require("express-session");
 const { dbQuery } = require("./db-query")
 const { sortTodoLists } = require("./sort");
+const bcrypt = require("bcrypt");
 
 module.exports = class PgPersistence {
+  
+
   async _partitionTodoLists(todoLists) {
     let undone = [];
     let done = [];
@@ -18,11 +21,11 @@ module.exports = class PgPersistence {
     return [...undone, ...done];
   }
 
-  async isValidUser(username, password) {
-    let sql = "SELECT * FROM users WHERE username=$1 AND password =$2"
-    let result = await dbQuery(sql, username, password);
-    console.log(result)
-    return result.rowCount === 1
+  async authenticate(username, password) {
+    const FIND_HASHED_PASSWORD = "SELECT password FROM users WHERE username=$1";
+    let result = await dbQuery(FIND_HASHED_PASSWORD, username);
+    if (result.rowCount === 0) return false;
+    return bcrypt.compare(password, result.rows[0].password);
   }
 
   async sortedTodoLists() {
